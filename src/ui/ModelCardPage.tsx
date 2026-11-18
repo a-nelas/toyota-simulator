@@ -105,7 +105,7 @@ export function ModelCardPage() {
             “From laboratory to road”), {TYPE_APPROVAL.electricW} W electrical, {TYPE_APPROVAL.tempC} °C, no A/C.
           </li>
           <li>
-            <b>Real-world extras:</b> diesel particulate filter regenerations +1.5 % on average; Stop &amp; Start in drive and route modes.
+            <b>Real-world extras:</b> diesel particulate filter regenerations +1.5 % on average. This engine has no Stop &amp; Start, so it idles at every stop.
           </li>
         </ul>
       </div>

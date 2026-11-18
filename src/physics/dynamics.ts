@@ -22,8 +22,6 @@ import { ENGINE, FUEL } from './vehicle';
 
 export const SHIFT_TIME_S = 0.5;
 const LAUNCH_ENGAGE_RPM = 1000;
-const STOP_START_DELAY_S = 1.5;
-const RESTART_FUEL_G = 0.25;
 const ENGINE_THERMAL_J_PER_K = 40000;
 const MAX_BRAKE_DECEL = 0.9 * G;
 /** Torque available without boost pressure (Nm, estimate). */
@@ -37,12 +35,10 @@ export interface SimState {
   gear: number;
   shiftTimer: number;
   pendingGear: number;
-  engineOn: boolean;
   rpm: number;
   oilC: number;
   cabinC: number;
   fuelG: number;
-  stoppedFor: number;
   // energy accounting (J)
   eAero: number;
   eRoll: number;
@@ -53,7 +49,6 @@ export interface SimState {
   eAlt: number;
   eFriction: number;
   eFuel: number;
-  restarts: number;
   /** VGT boost state 0..1 (turbo lag). */
   boost: number;
 }
@@ -82,10 +77,10 @@ export interface StepInfo {
 export function initialState(s: Scenario, opts: { coldStart?: boolean; cabinC?: number } = {}): SimState {
   const amb = s.roadLoadMode === 'typeApproval' ? TYPE_APPROVAL.tempC : s.weather.tempC;
   return {
-    t: 0, x: 0, v: 0, gear: 0, shiftTimer: 0, pendingGear: 0, engineOn: true, rpm: ENGINE.idleRpm,
-    oilC: opts.coldStart ? amb : 90, cabinC: opts.cabinC ?? amb, fuelG: 0, stoppedFor: 0,
+    t: 0, x: 0, v: 0, gear: 0, shiftTimer: 0, pendingGear: 0, rpm: ENGINE.idleRpm,
+    oilC: opts.coldStart ? amb : 90, cabinC: opts.cabinC ?? amb, fuelG: 0,
     eAero: 0, eRoll: 0, eGrade: 0, eBrake: 0, eDriveline: 0, eAc: 0, eAlt: 0, eFriction: 0, eFuel: 0,
-    restarts: 0, boost: 0.2,
+    boost: 0.2,
   };
 }
 
@@ -150,21 +145,9 @@ export class Vehicle {
       else if (throttle > 0.01) clutch = 'slipping';
     }
 
-    // Stop & Start.
-    if (st.v < 0.1 && throttle < 0.01) st.stoppedFor += dt;
-    else st.stoppedFor = 0;
-    const wantsOff = s.stopStart && !ta && st.stoppedFor > STOP_START_DELAY_S && st.oilC > 30 && !s.rearDefrost;
-    if (wantsOff && st.engineOn) st.engineOn = false;
-    if (!st.engineOn && (throttle > 0.01 || (!wantsOff && st.stoppedFor === 0))) {
-      st.engineOn = true;
-      st.restarts++;
-      st.fuelG += RESTART_FUEL_G;
-    }
-
     // Engine speed.
     let rpm: number;
-    if (!st.engineOn) rpm = 0;
-    else if (clutch === 'locked') rpm = wheelRpm;
+    if (clutch === 'locked') rpm = wheelRpm;
     else if (clutch === 'slipping') rpm = Math.max(wheelRpm, LAUNCH_ENGAGE_RPM + 500 * throttle);
     else rpm = ENGINE.idleRpm + (throttle > 0.01 ? 2500 * throttle : 0);
     rpm = Math.min(rpm, ENGINE.maxRpm + 200);
@@ -186,8 +169,7 @@ export class Vehicle {
     const electricW = ta
       ? TYPE_APPROVAL.electricW
       : electricalLoadW({ headlights: s.headlights, rearDefrost: s.rearDefrost, blower: s.ac.on ? s.ac.blower : Math.min(1, s.ac.blower) }, condFanW);
-    const altW = st.engineOn ? alternatorMechW(electricW) : 0;
-    if (!st.engineOn) acW = 0;
+    const altW = alternatorMechW(electricW);
     // Turbo lag: torque above the naturally-aspirated level needs boost, which builds with a lag
     // that is long at low rpm (little exhaust energy) and short at high rpm.
     const boostTarget = shifting ? 0.3 : clutch === 'open' ? Math.min(throttle, 0.3) : throttle;
@@ -204,42 +186,40 @@ export class Vehicle {
     let fuelCut = false;
     let driveN = 0;
     let drivelineW = 0;
-    if (st.engineOn) {
-      const tFull = fullLoadTorque(rpm);
-      const tNa = Math.min(tFull, NA_TORQUE_NM);
-      const tMax = tNa + (tFull - tNa) * Math.min(1, Math.max(0, st.boost));
-      if (clutch === 'locked') {
-        const i = OVERALL_RATIOS[gear - 1];
-        const eta = meshEfficiency(gear);
-        const spin = spinLossTorque(rpm);
-        if (throttle > 0.01) {
-          const gross = throttle * tMax; // indicated-ish brake torque request incl. accessories
-          engineTorque = gross - accTorque;
-          fuelGs = fuelRateGs(rpm, gross, { frictionMult, effScale: 1 / this.fuelScale });
-        } else if (rpm >= ENGINE.fuelCutRpm) {
-          fuelCut = true;
-          engineTorque = -motoringTorque(rpm, frictionMult) - accTorque;
-        } else {
-          // Idle governor holds ~idle torque; treat as small positive torque at low rpm.
-          engineTorque = 0;
-          fuelGs = fuelRateGs(rpm, accTorque, { frictionMult, effScale: 1 / this.fuelScale });
-        }
-        const clutchT = engineTorque - spin;
-        driveN = clutchT >= 0 ? (clutchT * i * eta) / this.radius : (clutchT * i) / eta / this.radius;
-        drivelineW = Math.abs(engineTorque * omega - driveN * st.v);
-      } else if (clutch === 'slipping') {
-        const i = OVERALL_RATIOS[gear - 1];
-        const eta = meshEfficiency(gear);
-        const gross = throttle * tMax;
+    const tFull = fullLoadTorque(rpm);
+    const tNa = Math.min(tFull, NA_TORQUE_NM);
+    const tMax = tNa + (tFull - tNa) * Math.min(1, Math.max(0, st.boost));
+    if (clutch === 'locked') {
+      const i = OVERALL_RATIOS[gear - 1];
+      const eta = meshEfficiency(gear);
+      const spin = spinLossTorque(rpm);
+      if (throttle > 0.01) {
+        const gross = throttle * tMax; // indicated-ish brake torque request incl. accessories
         engineTorque = gross - accTorque;
         fuelGs = fuelRateGs(rpm, gross, { frictionMult, effScale: 1 / this.fuelScale });
-        driveN = (Math.max(0, engineTorque - spinLossTorque(rpm)) * i * eta) / this.radius;
-        drivelineW = Math.max(0, engineTorque * omega - driveN * st.v);
+      } else if (rpm >= ENGINE.fuelCutRpm) {
+        fuelCut = true;
+        engineTorque = -motoringTorque(rpm, frictionMult) - accTorque;
       } else {
-        // Clutch open: engine idles (or revs freely) carrying accessories.
-        const freeT = throttle > 0.01 ? accTorque + 10 * throttle : accTorque;
-        fuelGs = fuelRateGs(rpm, freeT, { frictionMult, effScale: 1 / this.fuelScale });
+        // Idle governor holds ~idle torque; treat as small positive torque at low rpm.
+        engineTorque = 0;
+        fuelGs = fuelRateGs(rpm, accTorque, { frictionMult, effScale: 1 / this.fuelScale });
       }
+      const clutchT = engineTorque - spin;
+      driveN = clutchT >= 0 ? (clutchT * i * eta) / this.radius : (clutchT * i) / eta / this.radius;
+      drivelineW = Math.abs(engineTorque * omega - driveN * st.v);
+    } else if (clutch === 'slipping') {
+      const i = OVERALL_RATIOS[gear - 1];
+      const eta = meshEfficiency(gear);
+      const gross = throttle * tMax;
+      engineTorque = gross - accTorque;
+      fuelGs = fuelRateGs(rpm, gross, { frictionMult, effScale: 1 / this.fuelScale });
+      driveN = (Math.max(0, engineTorque - spinLossTorque(rpm)) * i * eta) / this.radius;
+      drivelineW = Math.max(0, engineTorque * omega - driveN * st.v);
+    } else {
+      // Clutch open: engine idles (or revs freely) carrying accessories.
+      const freeT = throttle > 0.01 ? accTorque + 10 * throttle : accTorque;
+      fuelGs = fuelRateGs(rpm, freeT, { frictionMult, effScale: 1 / this.fuelScale });
     }
 
     // Brakes (also hold the car at standstill).

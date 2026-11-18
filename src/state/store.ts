@@ -35,6 +35,12 @@ function save(p: Persisted) {
 }
 
 const saved = load();
+// Older saves: the old €1.60 default becomes the current Portuguese price; Stop & Start no longer exists.
+if (saved.scenario) {
+  const sc = saved.scenario as Partial<Scenario> & { stopStart?: unknown };
+  if (sc.fuelPriceEurL === 1.6) sc.fuelPriceEurL = DEFAULT_SCENARIO.fuelPriceEurL;
+  delete sc.stopStart;
+}
 
 export interface AppState extends Persisted {
   tab: Tab;

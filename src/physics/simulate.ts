@@ -35,7 +35,6 @@ export interface RunSummary {
     ac: number;
     alternator: number;
   };
-  restarts: number;
   phases: { name: string; distanceKm: number; fuelL: number; lPer100: number }[];
   trace: TracePoint[];
   maxSpeedError: number;
@@ -62,7 +61,6 @@ function summarize(s: Scenario, st: SimState, trace: TracePoint[], phases: RunSu
       ac: st.eAc / 1e6,
       alternator: st.eAlt / 1e6,
     },
-    restarts: st.restarts,
     phases,
     trace,
     maxSpeedError: maxErr,

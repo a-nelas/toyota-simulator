@@ -175,9 +175,6 @@ export function Controls({ byGear }: { byGear: OperatingPoint[] }) {
         <label className="check">
           <input type="checkbox" checked={s.rearDefrost} onChange={(e) => set({ rearDefrost: e.target.checked })} /> Rear window heater
         </label>
-        <label className="check">
-          <input type="checkbox" checked={s.stopStart} onChange={(e) => set({ stopStart: e.target.checked })} /> Stop &amp; Start (drive / routes)
-        </label>
       </fieldset>
 
       <fieldset>

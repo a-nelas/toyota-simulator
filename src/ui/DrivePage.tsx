@@ -183,7 +183,6 @@ interface HudData {
   grade: number;
   boost: number;
   fuelCut: boolean;
-  engineOn: boolean;
   cruise: boolean;
   cruiseKmh: number;
   autoShift: boolean;
@@ -277,7 +276,7 @@ export function DrivePage() {
       const fuelGs = info?.fuelGs ?? 0;
       const lh = (fuelGs * 3.6) / FUEL.densityKgL;
       const kmh = st.v * 3.6;
-      const rpm = st.engineOn ? st.rpm : 0;
+      const rpm = st.rpm;
       const avg = km > 0.05 ? (l / km) * 100 : 0;
       let hint: HudData['shiftHint'] = '';
       if (!S.autoShift && st.gear > 0 && st.gear < 6 && rpm > 2200 && S.thr < 0.7 && S.car.wheelRpm(st, st.gear + 1) > 1250) hint = 'up';
@@ -299,7 +298,6 @@ export function DrivePage() {
         grade: S.profile ? sampleProfile(S.profile, Math.min(st.x, S.profile.lengthM), S.profile.grade) : useStore.getState().scenario.gradePct,
         boost: st.boost,
         fuelCut: info?.fuelCut ?? false,
-        engineOn: st.engineOn,
         cruise: S.cruise.on,
         cruiseKmh: S.cruise.kmh,
         autoShift: S.autoShift,
@@ -413,8 +411,7 @@ export function DrivePage() {
           <span>A/C on/off</span>
         </div>
         <div className="small muted">
-          Windows {s.windows.map((w) => (w > 0.5 ? '▼' : '▲')).join(' ')} · A/C {s.ac.on ? 'on' : 'off'} · {s.weather.tempC} °C · Stop &amp; Start{' '}
-          {s.stopStart ? 'on' : 'off'}
+          Windows {s.windows.map((w) => (w > 0.5 ? '▼' : '▲')).join(' ')} · A/C {s.ac.on ? 'on' : 'off'} · {s.weather.tempC} °C
         </div>
       </div>
 
@@ -436,8 +433,8 @@ export function DrivePage() {
               {hud.autoShift ? 'AUTO' : 'MANUAL'}
               {hud.cruise ? ` · CRUISE ${hud.cruiseKmh}` : ''}
             </div>
-            <div className="small" style={{ color: hud.engineOn ? (hud.fuelCut ? C.good : '#9fc9e6') : C.warning, minHeight: 16 }}>
-              {!hud.engineOn ? 'ENGINE OFF (Stop & Start)' : hud.fuelCut ? 'FUEL CUT' : `boost ${(hud.boost * 100).toFixed(0)} %`}
+            <div className="small" style={{ color: hud.fuelCut ? C.good : '#9fc9e6', minHeight: 16 }}>
+              {hud.fuelCut ? 'FUEL CUT' : `boost ${(hud.boost * 100).toFixed(0)} %`}
             </div>
           </div>
           <div className="gauge">

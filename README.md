@@ -37,7 +37,7 @@ npm run build    # type-check + production build
 - **Engine**: a Willans-type model. Fuel = (brake + friction work) ÷ indicated efficiency, using a full-load curve through Toyota's 205 Nm / 66 kW points.
   - Friction follows Chen–Flynn, with a cold-oil multiplier.
   - Fuel is cut on overrun.
-  - Turbo lag, an auto-clutch launch and Stop & Start are modelled in drive mode.
+  - Turbo lag and an auto-clutch launch are modelled in drive mode. The 1.4 D-4D has no Stop & Start, so the engine idles at every stop.
 - **A/C**: a cabin heat balance (sun, conduction, occupants, fresh air) divided by a COP that depends on temperature, compressor speed and road speed.
 
 ## Known limits

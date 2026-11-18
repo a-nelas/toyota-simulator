@@ -187,8 +187,7 @@ export function RoutesPage() {
           <div className="card">
             <h3>Where the energy at the wheels and accessories went</h3>
             <p className="sub">
-              {fmt(e!.fuel, 1)} MJ of diesel burned · {fmt((100 * total) / e!.fuel, 0)} % reached the wheels and accessories · Stop &amp; Start
-              restarts: {result.r.restarts}
+              {fmt(e!.fuel, 1)} MJ of diesel burned · {fmt((100 * total) / e!.fuel, 0)} % reached the wheels and accessories
             </p>
             <div className="stackbar">
               {items.map((i) => (

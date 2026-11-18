@@ -73,12 +73,39 @@ function useMaterials() {
       tyre: new THREE.MeshStandardMaterial({ color: '#141415', roughness: 0.92, side: THREE.DoubleSide }),
       disc: new THREE.MeshStandardMaterial({ color: '#6c6e71', metalness: 0.8, roughness: 0.45 }),
       plate: new THREE.MeshStandardMaterial({ color: '#f4f4f0', roughness: 0.5 }),
+      railMetal: new THREE.MeshStandardMaterial({ color: '#a7adb3', metalness: 0.85, roughness: 0.32 }),
+      grilleSlat: new THREE.MeshStandardMaterial({ color: '#3a3d42', metalness: 0.3, roughness: 0.5 }),
       euBand: new THREE.MeshStandardMaterial({ color: '#1c3f94', roughness: 0.5 }),
     };
   }, []);
 }
 
 type Mats = ReturnType<typeof useMaterials>;
+
+const RAIL_Z = 0.585;
+
+/** Roof rail along the roof edge: a flattened tube 4 cm above the roof, sloping to a foot at each end. */
+function roofRail(side: 1 | -1): THREE.BufferGeometry {
+  const x0 = 0.1;
+  const x1 = -2.03;
+  const smooth = (e: number, t: number) => {
+    const u = Math.min(1, Math.max(0, t / e));
+    return u * u * (3 - 2 * u);
+  };
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i <= 60; i++) {
+    const u = i / 60;
+    const x = x0 + (x1 - x0) * u;
+    const lift = 0.008 + 0.032 * smooth(0.1, u) * smooth(0.1, 1 - u);
+    pts.push(new THREE.Vector3(x, surfaceTopAt(x, RAIL_Z) + lift, side * RAIL_Z));
+  }
+  const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 120, 0.013, 10, false);
+  // Flatten to an oval section (taller than wide reads better from the side).
+  const p = g.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) p.setZ(i, side * RAIL_Z + (p.getZ(i) - side * RAIL_Z) * 0.75);
+  g.computeVertexNormals();
+  return g;
+}
 
 function tyreProfile(r: number, rim: number, w: number): THREE.Vector2[] {
   const hw = w / 2;
@@ -279,6 +306,8 @@ export function CarModel({ paint, tyre, windows, speedRef, brakingRef, onWindowC
     m[MAT.tail] = mats.tail;
     m[MAT.drl] = mats.drl;
     m[MAT.chrome] = mats.chrome;
+    m[MAT.grey] = mats.grilleSlat;
+    m[MAT.grille] = mats.trimMatte;
     return m;
   }, [paintMat, mats]);
   useFrame(() => {
@@ -303,7 +332,8 @@ export function CarModel({ paint, tyre, windows, speedRef, brakingRef, onWindowC
       [0.6, 0.835],
       [0.42, 0.88],
     ].map(([z, y]) => [s * z, y] as [number, number]);
-  const railY = surfaceTopAt(-0.8, 0.56);
+  const railGeos = useMemo(() => ([1, -1] as const).map((side) => roofRail(side)), []);
+  const railY = surfaceTopAt(-0.8, RAIL_Z) + 0.04;
 
   return (
     <group>
@@ -350,18 +380,9 @@ export function CarModel({ paint, tyre, windows, speedRef, brakingRef, onWindowC
       <Mirror side={1} paintMat={paintMat} mats={mats} />
       <Mirror side={-1} paintMat={paintMat} mats={mats} />
 
-      {/* Roof rails on short feet. */}
-      {[1, -1].map((side) => (
-        <group key={side} position={[-0.8, railY, side * 0.56]}>
-          <mesh position={[0, 0.045, 0]} castShadow material={mats.trim}>
-            <boxGeometry args={[2.25, 0.028, 0.032]} />
-          </mesh>
-          {[-1.05, 1.05].map((x) => (
-            <mesh key={x} position={[x, 0.02, 0]} material={mats.trim}>
-              <boxGeometry args={[0.16, 0.05, 0.04]} />
-            </mesh>
-          ))}
-        </group>
+      {/* Roof rails: satin aluminium, following the roof and dipping into a foot at each end. */}
+      {railGeos.map((g, i) => (
+        <mesh key={i} geometry={g} material={mats.railMetal} castShadow />
       ))}
       {/* Roof spoiler over the tailgate and a shark-fin antenna. */}
       <mesh position={[-2.15, surfaceTopAt(-2.1, 0) - 0.012, 0]} rotation={[0, 0, 0.1]} material={paintMat} castShadow>
@@ -371,7 +392,7 @@ export function CarModel({ paint, tyre, windows, speedRef, brakingRef, onWindowC
         <sphereGeometry args={[1, 16, 10]} />
       </mesh>
       {roofBox && (
-        <mesh position={[-0.75, railY + 0.27, 0]} castShadow>
+        <mesh position={[-0.75, railY + 0.24, 0]} castShadow>
           <capsuleGeometry args={[0.2, 1.4, 6, 16]} />
           <meshStandardMaterial color="#202224" roughness={0.4} metalness={0.2} />
         </mesh>

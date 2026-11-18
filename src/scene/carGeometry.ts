@@ -224,16 +224,15 @@ function stations(): number[] {
 }
 
 /** Material slots of the body mesh. */
-export const MAT = { paint: 0, glass: 1, trim: 2, head: 3, tail: 4, drl: 5, chrome: 6 } as const;
+export const MAT = { paint: 0, glass: 1, trim: 2, head: 3, tail: 4, drl: 5, chrome: 6, grey: 7, grille: 8 } as const;
 
 /** Front side-window top edge (world y) — keeps the glass behind the A-pillar. */
 export function frontWindowTopY(x: number): number {
   return Math.min(BELT_Y + 0.365, section(x).Yr - 0.05);
 }
 
-function classify(x: number, y: number, az: number, sg: number, k: number): number {
+function classify(x: number, y: number, _az: number, sg: number, k: number): number {
   // Grilles, lips and the rear diffuser.
-  if (x > 2.08 && y < 0.5 && az < 0.52) return MAT.trim;
   if (sg === SEG.bottom || sg === SEG.corner) return MAT.trim;
   if (sg === SEG.glass) {
     if (x > 0.03 && x < 1.0) return y > frontWindowTopY(x) + 0.018 ? MAT.paint : MAT.trim;
@@ -247,7 +246,34 @@ function classify(x: number, y: number, az: number, sg: number, k: number): numb
   return MAT.paint;
 }
 
-/** Decal regions (lights, upper grille, chrome): material slot or -1. */
+/**
+ * Front view of the 2015–18 facelift nose, as (height y, |z|) → material slot or -1:
+ * a chrome bar linking the headlights over a slim black upper grille, and a wide lower grille
+ * that flares towards the bottom, with horizontal slats, a chrome top edge and fog lamps
+ * in its lower corners.
+ */
+export function frontDecal(y: number, az: number): number {
+  // Upper grille.
+  if (y >= 0.663 && y < 0.678 && az < 0.445) return MAT.chrome;
+  if (y > 0.612 && y < 0.663 && az < 0.4 - (0.663 - y) * 1.1) return MAT.grille;
+  // Lower grille: trapezoid 0.74 m wide at the top, 1.12 m at the bottom.
+  const top = 0.505;
+  const half = 0.37 + ((top - y) / 0.205) * 0.19;
+  if (y >= top && y < top + 0.009 && az < 0.375) return MAT.chrome;
+  // Fog lamps in the flared lower corners.
+  const r = Math.hypot(az - 0.455, y - 0.37);
+  if (r < 0.026) return MAT.chrome;
+  if (r < 0.036) return MAT.grille;
+  if (y < top && y > 0.27 && az < half) {
+    // Horizontal slats.
+    const k = (y - 0.318) / 0.031;
+    if (k > 0 && k - Math.floor(k) < 0.2 && az < half - 0.025 && az < 0.41) return MAT.grey;
+    return MAT.grille;
+  }
+  return -1;
+}
+
+/** Decal regions (lights, grilles, chrome): material slot or -1. */
 function decalAt(x: number, y: number, az: number, sg: number): number {
   const s = section(x);
   if (x > 1.8) {
@@ -260,11 +286,7 @@ function decalAt(x: number, y: number, az: number, sg: number): number {
       const lo = 0.605 + 0.025 * u;
       if (y > lo && y < 0.705) return y < lo + 0.016 ? MAT.drl : MAT.head;
     }
-    if (x > 2.08 && az < 0.42) {
-      if (y > 0.6 && y < 0.662) return MAT.trim;
-      if (y >= 0.662 && y < 0.676) return MAT.chrome;
-    }
-    return -1;
+    return x > 2.06 ? frontDecal(y, az) : -1;
   }
   if (y < 0.33 && az < 0.7 && x < -2.1 - 1.2 * Math.max(0, y - 0.24)) return MAT.trim; // rear diffuser
   if (sg === SEG.side && az > 0.5 && y > 0.845 && y < Math.min(0.975, s.Yb - 0.006)) {
@@ -312,6 +334,38 @@ export function buildDecals(): THREE.BufferGeometry {
           const m = decalAt((pa[0] + pc[0]) / 2, (pa[1] + pc[1]) / 2, (pa[2] + pc[2]) / 2, segs[j]);
           if (m >= 0) kept.push({ m, tri });
         }
+      }
+    }
+  }
+  // The flat nose face (the body's front cap): a fine grid in the front view.
+  {
+    const { pts } = halfRing(section(FRONT_X), RES);
+    const outline: [number, number][] = [...pts.map(([y, z]) => [z, y] as [number, number]), ...pts.slice(1, -1).reverse().map(([y, z]) => [-z, y] as [number, number])];
+    const inside = (z: number, y: number) => {
+      let c = false;
+      for (let a = 0, b = outline.length - 1; a < outline.length; b = a++) {
+        const [za, ya] = outline[a];
+        const [zb, yb] = outline[b];
+        if (ya > y !== yb > y && z < ((zb - za) * (y - ya)) / (yb - ya) + za) c = !c;
+      }
+      return c;
+    };
+    const d = 0.004;
+    const nz = Math.ceil(1.3 / d);
+    const ny = Math.ceil(0.32 / d);
+    const base = pos.length / 3;
+    for (let iy = 0; iy <= ny; iy++) for (let iz = 0; iz <= nz; iz++) pos.push(FRONT_X, 0.28 + iy * d, 0.65 - iz * d);
+    const at = (iy: number, iz: number) => base + iy * (nz + 1) + iz;
+    for (let iy = 0; iy < ny; iy++) {
+      for (let iz = 0; iz < nz; iz++) {
+        const zc = 0.65 - (iz + 0.5) * d;
+        const yc = 0.28 + (iy + 0.5) * d;
+        if (!inside(zc, yc)) continue;
+        // (z, y) → (z − d, y) → (z − d, y + d): counter-clockwise seen from the front (+x).
+        const tri = [at(iy, iz), at(iy, iz + 1), at(iy + 1, iz + 1), at(iy, iz), at(iy + 1, iz + 1), at(iy + 1, iz)];
+        fullIndex.push(...tri);
+        const m = frontDecal(yc, Math.abs(zc));
+        if (m >= 0) kept.push({ m, tri });
       }
     }
   }
@@ -386,9 +440,12 @@ export function buildBody(): BodyGeometry {
     }
   }
 
-  // End caps get their own vertices so they shade flat.
+  // End caps get their own vertices; their rims later borrow the body's normals so the flat
+  // bumper faces shade smoothly into the curved corners instead of reading as separate panels.
+  const capBases: number[] = [];
   const cap = (ring: [number, number, number][], mat: number, front: boolean) => {
     const base = pos.length / 3;
+    capBases.push(base);
     let cy = 0;
     for (const p of ring) cy += p[1];
     pos.push(ring[0][0], cy / ring.length, 0);
@@ -401,7 +458,7 @@ export function buildBody(): BodyGeometry {
     }
   };
   cap(rings[0], MAT.paint, false);
-  cap(rings[rings.length - 1], MAT.trim, true);
+  cap(rings[rings.length - 1], MAT.paint, true);
 
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -412,6 +469,15 @@ export function buildBody(): BodyGeometry {
   });
   g.setIndex(index);
   g.computeVertexNormals();
+  const N = g.attributes.normal as THREE.BufferAttribute;
+  capBases.forEach((base, c) => {
+    const station = c === 0 ? 0 : xs.length - 1;
+    N.setXYZ(base, c === 0 ? -1 : 1, 0, 0);
+    for (let j = 0; j < ringLen; j++) {
+      const v = station * ringLen + j;
+      N.setXYZ(base + 1 + j, N.getX(v), N.getY(v), N.getZ(v));
+    }
+  });
   return { geometry: g, rearOutline: rings[0].map((p) => [p[2], p[1]] as [number, number]) };
 }
 

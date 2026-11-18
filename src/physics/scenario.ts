@@ -32,7 +32,6 @@ export interface Scenario {
   roadLoadMode: RoadLoadMode;
   calibration: Calibration;
   fuelPriceEurL: number;
-  stopStart: boolean;
 }
 
 export const DEFAULT_SCENARIO: Scenario = {
@@ -51,8 +50,8 @@ export const DEFAULT_SCENARIO: Scenario = {
   weather: { ...WEATHER_PRESETS.lisbonSpring.weather },
   roadLoadMode: 'real',
   calibration: { fuelScale: 1, roadLoadScale: 1 },
-  fuelPriceEurL: 1.6,
-  stopStart: true,
+  /** Typical Portuguese pump price for diesel (€/L). */
+  fuelPriceEurL: 2.0,
 };
 
 /**
