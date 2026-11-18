@@ -613,3 +613,17 @@ table.data td.num {
     max-height: 40%;
   }
 }
+
+/* Zoom hint / reset under the line charts. */
+.chart-zoom {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 22px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted, #8a8f98);
+}
+.chart-zoom button {
+  font-size: 11px;
+  padding: 2px 8px;
+}
