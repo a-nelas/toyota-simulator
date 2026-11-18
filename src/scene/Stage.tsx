@@ -20,7 +20,7 @@ export function Lighting() {
         shadow-camera-bottom={-8}
       />
       <Environment resolution={256}>
-        <Lightformer intensity={2} position={[0, 6, 0]} rotation-x={Math.PI / 2} scale={[12, 12, 1]} />
+        <Lightformer intensity={1.3} position={[0, 6, 0]} rotation-x={Math.PI / 2} scale={[12, 12, 1]} />
         <Lightformer intensity={1} position={[-8, 2, 4]} rotation-y={Math.PI / 2} scale={[10, 3, 1]} color="#cfe2ff" />
         <Lightformer intensity={0.8} position={[8, 2, -4]} rotation-y={-Math.PI / 2} scale={[10, 3, 1]} color="#ffe8cc" />
         <Lightformer intensity={0.3} position={[0, -3, 0]} rotation-x={-Math.PI / 2} scale={[20, 20, 1]} color="#55603f" />

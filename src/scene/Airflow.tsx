@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Windows } from '../physics/aero';
-import { BELT_Y, FRONT_X, HALF_W, REAR_X, ROOF_Y } from './carGeometry';
+import { BELT_Y, FRONT_X, HALF_W, REAR_X, ROOF_Y, topY } from './carGeometry';
 
 /**
  * Illustrative airflow (not CFD): streak particles follow displacement streamlines around the
@@ -16,22 +16,14 @@ const X1 = FRONT_X + 4;
 const NS = Math.ceil((X1 - X0) / STEP);
 
 function silhouette(): { top: Float32Array; side: Float32Array; wake: Float32Array } {
-  const roof: [number, number][] = [
-    [FRONT_X + 0.02, 0.62], [FRONT_X - 0.3, 0.77], [1.05, 0.88], [0.95, 0.92], [0.5, 1.2], [0.12, 1.41],
-    [-0.6, 1.44], [-1.2, ROOF_Y], [-2.12, 1.38], [REAR_X, 1.36],
-  ];
   const raw = new Float32Array(NS);
   const rawSide = new Float32Array(NS);
   const wake = new Float32Array(NS);
   for (let i = 0; i < NS; i++) {
     const x = X0 + i * STEP;
     let h = 0;
-    if (x <= FRONT_X + 0.02 && x >= REAR_X) {
-      for (let k = 1; k < roof.length; k++) {
-        const [xa, ya] = roof[k - 1];
-        const [xb, yb] = roof[k];
-        if (x <= xa && x >= xb) h = ya + ((yb - ya) * (xa - x)) / (xa - xb);
-      }
+    if (x <= FRONT_X && x >= REAR_X) {
+      h = topY(x);
       rawSide[i] = HALF_W;
     } else if (x < REAR_X) {
       // Separated wake: the effective body closes slowly over ~5 m.
