@@ -489,7 +489,8 @@ table.data td.num {
 /* Drive mode */
 .drive {
   position: relative;
-  height: calc(100vh - 58px);
+  /* Fill the space under the header, whatever height the header wraps to. */
+  height: 100%;
   min-height: 520px;
 }
 .drive .scene-wrap {
@@ -577,7 +578,61 @@ table.data td.num {
   right: 14px;
   bottom: 14px;
   display: flex;
-  gap: 8px;
+  align-items: flex-end;
+  gap: 10px;
+}
+.pedal-slider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(30, 30, 30, 0.8);
+  font-size: 11px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+.pedal-value {
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.pedal-track {
+  position: relative;
+  width: 34px;
+  height: 180px;
+  border-radius: 8px;
+  background:
+    repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), rgba(255, 255, 255, 0.14) calc(25% - 1px) 25%),
+    rgba(255, 255, 255, 0.06);
+  cursor: ns-resize;
+  touch-action: none;
+  outline: none;
+}
+.pedal-track:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.pedal-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 8px;
+  background: linear-gradient(to top, rgba(57, 135, 229, 0.45), var(--accent));
+}
+.pedal-thumb {
+  position: absolute;
+  left: -5px;
+  right: -5px;
+  height: 12px;
+  margin-bottom: -6px;
+  border-radius: 4px;
+  background: #e8eef5;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
 }
 .pedals button {
   width: 70px;

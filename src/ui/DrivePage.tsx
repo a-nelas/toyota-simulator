@@ -21,6 +21,8 @@ interface Sim {
   driver: Driver;
   profile: RouteProfile | null;
   keys: { up: boolean; down: boolean };
+  /** Accelerator slider position (0–1); it stays where it is set. */
+  pedal: number;
   thr: number;
   brk: number;
   cruise: { on: boolean; kmh: number };
@@ -42,6 +44,7 @@ function newSim(s: Scenario, profile: RouteProfile | null): Sim {
     driver: new Driver(car, NORMAL_DRIVER),
     profile,
     keys: { up: false, down: false },
+    pedal: 0,
     thr: 0,
     brk: 0,
     cruise: { on: false, kmh: 90 },
@@ -89,9 +92,13 @@ function SimLoop({ sim, speedRef, brakingRef, scenario }: { sim: React.MutableRe
         ctl = S.driver.control(st, vT, 0, grade, h);
       } else if (S.cruise.on && !S.keys.down) {
         ctl = S.driver.control(st, S.cruise.kmh / 3.6, 0, grade, h);
+        // Pressing the accelerator past what cruise is using overrides it, as in the real car.
+        if (S.pedal > ctl.throttle) ctl = { throttle: S.pedal, brake: 0 };
       } else {
         if (S.keys.down) S.cruise.on = false;
-        S.thr = Math.min(1, Math.max(0, S.thr + (S.keys.up ? h / 0.35 : -h / 0.2)));
+        // The throttle follows the pedal (W / ↑ = floored) at a realistic foot speed.
+        const target = S.keys.down || S.finished ? 0 : S.keys.up ? 1 : S.pedal;
+        S.thr = S.thr < target ? Math.min(target, S.thr + h / 0.35) : Math.max(target, S.thr - h / 0.2);
         S.brk = Math.min(1, Math.max(0, S.brk + (S.keys.down ? h / 0.4 : -h / 0.15)));
         if (S.finished) S.brk = 0.6;
         ctl = { throttle: S.thr, brake: S.brk };
@@ -166,6 +173,65 @@ function ElevationStrip({ profile, xRef }: { profile: RouteProfile; xRef: React.
   return <canvas ref={canvas} style={{ width: 320, height: 90 }} />;
 }
 
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+const round2 = (v: number) => Math.round(clamp01(v) * 100) / 100;
+
+/** Vertical accelerator pedal: drag, scroll or use the arrow keys to set it; it holds its position. */
+function PedalSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const track = useRef<HTMLDivElement>(null);
+  const setFrom = (clientY: number) => {
+    const r = track.current!.getBoundingClientRect();
+    onChange(round2((r.bottom - clientY) / r.height));
+  };
+  const pct = Math.round(value * 100);
+  return (
+    <div className="pedal-slider">
+      <div className="pedal-value">{pct} %</div>
+      <div
+        ref={track}
+        className="pedal-track"
+        role="slider"
+        tabIndex={0}
+        aria-label="Accelerator pedal"
+        aria-orientation="vertical"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        aria-valuetext={`${pct} % throttle`}
+        title="Drag to set the accelerator · double-click to lift off"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setFrom(e.clientY);
+        }}
+        onPointerMove={(e) => {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) setFrom(e.clientY);
+        }}
+        onDoubleClick={() => onChange(0)}
+        onWheel={(e) => onChange(round2(value - Math.sign(e.deltaY) * 0.05))}
+        onKeyDown={(e) => {
+          const k = e.key;
+          let v: number | null = null;
+          if (k === 'ArrowUp' || k === 'ArrowRight') v = value + 0.05;
+          else if (k === 'ArrowDown' || k === 'ArrowLeft') v = value - 0.05;
+          else if (k === 'PageUp') v = value + 0.25;
+          else if (k === 'PageDown') v = value - 0.25;
+          else if (k === 'Home') v = 0;
+          else if (k === 'End') v = 1;
+          if (v === null) return;
+          // Keep the arrows on the slider instead of the global driving keys.
+          e.preventDefault();
+          e.stopPropagation();
+          onChange(round2(v));
+        }}
+      >
+        <div className="pedal-fill" style={{ height: `${pct}%` }} />
+        <div className="pedal-thumb" style={{ bottom: `${pct}%` }} />
+      </div>
+      <div className="pedal-label">Accelerator</div>
+    </div>
+  );
+}
+
 interface HudData {
   kmh: number;
   rpm: number;
@@ -210,10 +276,21 @@ export function DrivePage() {
   const brakingRef = useRef(false);
   const xRef = useRef(0);
   const [hud, setHud] = useState<HudData | null>(null);
+  const [pedalPos, setPedalPos] = useState(0);
+  const setPedal = (v: number) => {
+    setPedalPos(v);
+    sim.current.pedal = v;
+  };
+  /** New simulation with the foot off the pedal. */
+  const restart = () => {
+    sim.current = newSim(useStore.getState().scenario, profile);
+    setPedalPos(0);
+  };
 
   // New route → new simulation.
   useEffect(() => {
     sim.current = newSim(useStore.getState().scenario, profile);
+    setPedalPos(0);
   }, [profile]);
   // Settings changes (windows, A/C, load…) apply to the running car.
   useEffect(() => {
@@ -230,7 +307,12 @@ export function DrivePage() {
       const S = sim.current;
       const k = e.key.toLowerCase();
       if (k === 'w' || k === 'arrowup') S.keys.up = true;
-      else if (k === 's' || k === 'arrowdown' || k === ' ') S.keys.down = true;
+      else if (k === 's' || k === 'arrowdown' || k === ' ') {
+        // Braking means the foot has left the accelerator.
+        S.keys.down = true;
+        S.pedal = 0;
+        setPedalPos(0);
+      }
       else if (k === 'e' && !e.repeat) {
         S.autoShift = false;
         S.car.requestGear(S.st, Math.min(6, (S.st.shiftTimer > 0 ? S.st.pendingGear : S.st.gear) + 1));
@@ -241,7 +323,11 @@ export function DrivePage() {
       else if (k === 'm') S.autoShift = !S.autoShift;
       else if (k === 'c') {
         S.cruise.on = !S.cruise.on;
-        if (S.cruise.on) S.cruise.kmh = Math.max(30, Math.round((S.st.v * 3.6) / 5) * 5);
+        if (S.cruise.on) {
+          S.cruise.kmh = Math.max(30, Math.round((S.st.v * 3.6) / 5) * 5);
+          S.pedal = 0;
+          setPedalPos(0);
+        }
       } else if (k === 'r') S.cruise.kmh = Math.min(180, S.cruise.kmh + 5);
       else if (k === 'f') S.cruise.kmh = Math.max(30, S.cruise.kmh - 5);
       else if (k === 'x') setAc({ on: !useStore.getState().scenario.ac.on });
@@ -310,8 +396,9 @@ export function DrivePage() {
   }, []);
 
   const pitch = hud ? Math.atan(hud.grade / 100) : 0;
-  const pedal = (which: 'up' | 'down', on: boolean) => {
-    sim.current.keys[which] = on;
+  const brake = (on: boolean) => {
+    sim.current.keys.down = on;
+    if (on) setPedal(0);
   };
 
   return (
@@ -392,13 +479,13 @@ export function DrivePage() {
           >
             Reset trip
           </button>
-          <button onClick={() => (sim.current = newSim(useStore.getState().scenario, profile))}>Restart</button>
+          <button onClick={restart}>Restart</button>
         </div>
         <div className="keys">
           <kbd>W / ↑</kbd>
-          <span>Accelerate</span>
+          <span>Full throttle while held</span>
           <kbd>S / ↓</kbd>
-          <span>Brake</span>
+          <span>Brake (lifts the accelerator)</span>
           <kbd>E / Q</kbd>
           <span>Shift up / down (manual)</span>
           <kbd>M</kbd>
@@ -475,19 +562,17 @@ export function DrivePage() {
             {fmt(hud.tripKm, 1)} km in {fmt(hud.tripMin, 1)} min · {fmt(hud.tripL, 2)} L · <b>{fmt(hud.avg, 2)} L/100 km</b> · €
             {fmt(hud.tripL * s.fuelPriceEurL, 2)}
           </p>
-          <button className="btn primary" onClick={() => (sim.current = newSim(useStore.getState().scenario, profile))}>
+          <button className="btn primary" onClick={restart}>
             Drive again
           </button>
         </div>
       )}
 
       <div className="pedals">
-        <button onPointerDown={() => pedal('down', true)} onPointerUp={() => pedal('down', false)} onPointerLeave={() => pedal('down', false)}>
+        <button onPointerDown={() => brake(true)} onPointerUp={() => brake(false)} onPointerLeave={() => brake(false)}>
           Brake
         </button>
-        <button onPointerDown={() => pedal('up', true)} onPointerUp={() => pedal('up', false)} onPointerLeave={() => pedal('up', false)}>
-          Accel
-        </button>
+        <PedalSlider value={pedalPos} onChange={setPedal} />
       </div>
     </div>
   );
