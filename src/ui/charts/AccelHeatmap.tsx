@@ -1,17 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
-import { PEDALS, SHIFT_RPMS, isValid, type AccelResult } from '../../physics/accelStudy';
+import { PEDALS, SHIFT_RPMS, isValid, metricValue, type AccelMetric, type AccelResult } from '../../physics/accelStudy';
 import { C, fmt, rampColor } from '../theme';
 import { setupCanvas, useWidth } from './canvas';
 
-/** Extra fuel (%) that maps to the darkest colour. */
-const MAX_EXTRA = 20;
+/** Excess over the best (%) that maps to the darkest colour, per metric. */
+const MAX_EXTRA: Record<AccelMetric, number> = { total: 20, accel: 40, bsfc: 15 };
+const CELL_TEXT: Record<AccelMetric, (r: AccelResult) => string> = {
+  total: (r) => `${fmt(r.tToCruise, 0)} s`,
+  accel: (r) => `${fmt(r.fuelAccelMl, 0)}`,
+  bsfc: (r) => `${fmt(r.bsfcAccel, 0)}`,
+};
+const CELL_LEGEND: Record<AccelMetric, string> = {
+  total: 'Number in each cell = seconds to cruising speed.',
+  accel: 'Number in each cell = mL burned while accelerating.',
+  bsfc: 'Number in each cell = average g/kWh while accelerating.',
+};
 
 /**
- * Pedal % × upshift rpm grid. Colour = extra fuel over the distance compared with the most economical
- * strategy that meets the time limit; the number in each cell is the time to cruising speed.
- * Strategies slower than the time limit are dimmed; ones that never get there are hatched.
+ * Pedal % × upshift rpm grid. Colour = how much worse each strategy is on `metric` than the best one
+ * that meets the time limit (outlined). Strategies slower than the limit are dimmed; ones that never get
+ * there are hatched.
  */
-export function AccelHeatmap({ results, best, maxSeconds }: { results: AccelResult[]; best: AccelResult | null; maxSeconds: number }) {
+export function AccelHeatmap({ results, best, maxSeconds, metric }: { results: AccelResult[]; best: AccelResult | null; maxSeconds: number; metric: AccelMetric }) {
+  const maxExtra = MAX_EXTRA[metric];
+  const extraOf = (r: AccelResult) => (best ? (100 * (metricValue(r, metric) - metricValue(best, metric))) / metricValue(best, metric) : NaN);
   const [wrapRef, width] = useWidth<HTMLDivElement>();
   const canvas = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState<{ x: number; y: number; i: number; j: number } | null>(null);
@@ -35,7 +47,7 @@ export function AccelHeatmap({ results, best, maxSeconds }: { results: AccelResu
         const r = cell(i, j);
         const x = pad.l + i * cw;
         const y = pad.t + (PEDALS.length - 1 - j) * ch;
-        if (!r || !isValid(r) || !best) {
+        if (!r || !isValid(r) || !best || !Number.isFinite(metricValue(r, metric))) {
           ctx.fillStyle = '#2a2a28';
           ctx.fillRect(x, y, cw - 2, ch - 2);
           ctx.strokeStyle = '#3d3d3a';
@@ -45,16 +57,16 @@ export function AccelHeatmap({ results, best, maxSeconds }: { results: AccelResu
           ctx.stroke();
           return;
         }
-        const extra = (100 * (r.fuelMl - best.fuelMl)) / best.fuelMl;
+        const extra = extraOf(r);
         const inTime = r.tToCruise <= maxSeconds;
         ctx.globalAlpha = inTime ? 1 : 0.28;
-        ctx.fillStyle = rampColor(Math.sqrt(Math.max(0, Math.min(MAX_EXTRA, extra)) / MAX_EXTRA));
+        ctx.fillStyle = rampColor(Math.sqrt(Math.max(0, Math.min(maxExtra, extra)) / maxExtra));
         ctx.fillRect(x, y, cw - 2, ch - 2);
         ctx.globalAlpha = 1;
         if (cw > 30) {
-          const light = extra < MAX_EXTRA * 0.3;
+          const light = extra < maxExtra * 0.3;
           ctx.fillStyle = inTime ? (light ? '#10213a' : '#e8eef5') : C.muted;
-          ctx.fillText(`${fmt(r.tToCruise, 0)} s`, x + (cw - 2) / 2, y + (ch - 2) / 2 + 1);
+          ctx.fillText(CELL_TEXT[metric](r), x + (cw - 2) / 2, y + (ch - 2) / 2 + 1);
         }
       }),
     );
@@ -94,11 +106,12 @@ export function AccelHeatmap({ results, best, maxSeconds }: { results: AccelResu
     }
     ctx.textAlign = 'left';
     ctx.fillStyle = C.muted;
-    for (const e of [0, 2, 5, 10, 20]) {
-      const y = pad.t + ph * Math.sqrt(e / MAX_EXTRA);
-      ctx.fillText(e === MAX_EXTRA ? `+${e}%+` : `+${e}%`, lx + 16, y + 4);
+    for (const f of [0, 0.1, 0.25, 0.5, 1]) {
+      const e = Math.round(maxExtra * f);
+      const y = pad.t + ph * Math.sqrt(e / maxExtra);
+      ctx.fillText(f === 1 ? `+${e}%+` : `+${e}%`, lx + 16, y + 4);
     }
-  }, [results, best, maxSeconds, width]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [results, best, maxSeconds, width, metric]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onMove = (e: React.MouseEvent) => {
     const r = (e.target as HTMLElement).getBoundingClientRect();
@@ -120,8 +133,16 @@ export function AccelHeatmap({ results, best, maxSeconds }: { results: AccelResu
           <br />
           {isValid(hc) ? (
             <>
-              <b>{fmt(hc.fuelMl, 0)} mL</b>
-              {best ? ` (${hc.fuelMl >= best.fuelMl ? '+' : ''}${fmt((100 * (hc.fuelMl - best.fuelMl)) / best.fuelMl, 1)} %)` : ''}
+              Over the distance: <b>{fmt(hc.fuelMl, 0)} mL</b>
+              <br />
+              Accelerating: <b>{fmt(hc.fuelAccelMl, 1)} mL</b> at {fmt(hc.bsfcAccel, 0)} g/kWh
+              {best && (
+                <>
+                  <br />
+                  {extraOf(hc) >= 0 ? '+' : '−'}
+                  {fmt(Math.abs(extraOf(hc)), 1)} % vs. the outlined strategy
+                </>
+              )}
               <br />
               Cruise speed after {fmt(hc.tToCruise, 1)} s · {fmt(hc.xToCruise, 0)} m
               <br />
@@ -141,7 +162,7 @@ export function AccelHeatmap({ results, best, maxSeconds }: { results: AccelResu
       <div className="legend" style={{ marginTop: 6 }}>
         <span>
           <span className="sw" style={{ background: '#fff' }} />
-          Most economical within your time limit
+          Best within your time limit
         </span>
         <span>
           <span className="sw" style={{ background: rampColor(0.5), opacity: 0.3 }} />
@@ -151,7 +172,7 @@ export function AccelHeatmap({ results, best, maxSeconds }: { results: AccelResu
           <span className="sw" style={{ background: '#2a2a28', border: '1px solid #3d3d3a' }} />
           Never gets there
         </span>
-        <span className="muted">Number in each cell = seconds to cruising speed.</span>
+        <span className="muted">{CELL_LEGEND[metric]}</span>
       </div>
     </div>
   );

@@ -745,3 +745,16 @@ table.data td.num {
   font-weight: 600;
   margin-left: 8px;
 }
+.accel-heat-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.accel-heat-head h3 {
+  margin: 0;
+}
+.accel-heat-head .seg {
+  width: auto;
+}

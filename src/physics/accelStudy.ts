@@ -30,7 +30,10 @@ export interface AccelResult extends AccelCase {
   completed: boolean;
   tToCruise: number;
   xToCruise: number;
+  /** Fuel burned while accelerating, up to cruising speed (mL). */
   fuelAccelMl: number;
+  /** Average brake-specific fuel consumption while accelerating (g/kWh): how efficiently the engine worked. */
+  bsfcAccel: number;
   /** Fuel over the whole distance: acceleration + cruise (mL). */
   fuelMl: number;
   /** Time over the whole distance (s). */
@@ -49,6 +52,22 @@ const UPSHIFT_FLOOR_RPM = 1150;
 const DOWNSHIFT_RPM = ENGINE.minInGearRpm + 50;
 /** g of diesel per mL. */
 const DENSITY_G_PER_ML = FUEL.densityKgL;
+
+/** Snapshot taken when cruising speed is reached. */
+interface Reached {
+  t: number;
+  x: number;
+  fuelG: number;
+  /** Positive engine work so far (J). */
+  workJ: number;
+}
+
+/** What each result is judged on: fuel over the whole distance, fuel while accelerating, or engine efficiency. */
+export type AccelMetric = 'total' | 'accel' | 'bsfc';
+
+export function metricValue(r: AccelResult, m: AccelMetric): number {
+  return m === 'total' ? r.fuelMl : m === 'accel' ? r.fuelAccelMl : r.bsfcAccel;
+}
 
 /** State rolling at `kmh` in the highest gear that keeps the engine between the floor and `maxRpm`. */
 function startState(s: Scenario, car: Vehicle, kmh: number, maxRpm: number): SimState {
@@ -70,7 +89,7 @@ function startState(s: Scenario, car: Vehicle, kmh: number, maxRpm: number): Sim
   return st;
 }
 
-function finish(c: AccelCase, st: SimState, setup: AccelSetup, reachedAt: { t: number; x: number; fuelG: number } | null, trace: AccelResult['trace']): AccelResult {
+function finish(c: AccelCase, st: SimState, setup: AccelSetup, reachedAt: Reached | null, trace: AccelResult['trace']): AccelResult {
   const completed = st.x >= setup.distanceM;
   const fuelMl = st.fuelG / DENSITY_G_PER_ML;
   return {
@@ -80,6 +99,7 @@ function finish(c: AccelCase, st: SimState, setup: AccelSetup, reachedAt: { t: n
     tToCruise: reachedAt?.t ?? NaN,
     xToCruise: reachedAt?.x ?? NaN,
     fuelAccelMl: reachedAt ? reachedAt.fuelG / DENSITY_G_PER_ML : NaN,
+    bsfcAccel: reachedAt && reachedAt.workJ > 1e4 ? reachedAt.fuelG / (reachedAt.workJ / 3.6e6) : NaN,
     fuelMl,
     timeS: st.t,
     lPer100: st.x > 0 ? (fuelMl / 1000 / (st.x / 1000)) * 100 : NaN,
@@ -95,10 +115,11 @@ export function runAccelCase(s: Scenario, setup: AccelSetup, c: AccelCase): Acce
   if (st.gear === 0) car.requestGear(st, 1);
   const vTo = setup.toKmh / 3.6;
   const trace: AccelResult['trace'] = [];
-  let reachedAt: { t: number; x: number; fuelG: number } | null = null;
+  let reachedAt: Reached | null = null;
+  let workJ = 0;
   let nextSample = 0;
   while (st.x < setup.distanceM && st.t < MAX_T) {
-    if (!reachedAt && st.v >= vTo) reachedAt = { t: st.t, x: st.x, fuelG: st.fuelG };
+    if (!reachedAt && st.v >= vTo) reachedAt = { t: st.t, x: st.x, fuelG: st.fuelG, workJ };
     let ctl;
     if (reachedAt) {
       ctl = cruise.control(st, vTo, 0, setup.gradePct, DT);
@@ -110,7 +131,8 @@ export function runAccelCase(s: Scenario, setup: AccelSetup, c: AccelCase): Acce
       }
       ctl = { throttle: c.pedal, brake: 0 };
     }
-    car.step(st, ctl, setup.gradePct, DT);
+    const info = car.step(st, ctl, setup.gradePct, DT);
+    workJ += Math.max(0, info.engineTorqueNm) * ((info.rpm * Math.PI) / 30) * DT;
     if (st.t >= nextSample) {
       trace.push({ t: st.t, kmh: st.v * 3.6, gear: st.gear });
       nextSample += 0.5;
@@ -128,13 +150,15 @@ export function runAccelDriver(s: Scenario, setup: AccelSetup, opts: DriverOptio
   const st = startState(s, car, setup.fromKmh, opts.minAccelRpm + 800);
   const vTo = setup.toKmh / 3.6;
   const trace: AccelResult['trace'] = [];
-  let reachedAt: { t: number; x: number; fuelG: number } | null = null;
+  let reachedAt: Reached | null = null;
+  let workJ = 0;
   let nextSample = 0;
   while (st.x < setup.distanceM && st.t < MAX_T) {
     // The driver closes in on the target exponentially; count "there" within 1 km/h.
-    if (!reachedAt && st.v >= vTo - 1 / 3.6) reachedAt = { t: st.t, x: st.x, fuelG: st.fuelG };
+    if (!reachedAt && st.v >= vTo - 1 / 3.6) reachedAt = { t: st.t, x: st.x, fuelG: st.fuelG, workJ };
     const ctl = driver.control(st, vTo, 0, setup.gradePct, DT);
-    car.step(st, ctl, setup.gradePct, DT);
+    const info = car.step(st, ctl, setup.gradePct, DT);
+    workJ += Math.max(0, info.engineTorqueNm) * ((info.rpm * Math.PI) / 30) * DT;
     if (st.t >= nextSample) {
       trace.push({ t: st.t, kmh: st.v * 3.6, gear: st.gear });
       nextSample += 0.5;
@@ -146,16 +170,22 @@ export function runAccelDriver(s: Scenario, setup: AccelSetup, opts: DriverOptio
 /** A usable strategy: reached cruise speed and covered the distance. */
 export const isValid = (r: AccelResult) => r.reached && r.completed;
 
-/** Lowest-fuel valid result. */
-export function bestOf(results: AccelResult[]): AccelResult | null {
+/** Valid result with the lowest value of `metric` (default: fuel over the whole distance). */
+export function bestOf(results: AccelResult[], metric: AccelMetric = 'total'): AccelResult | null {
   let best: AccelResult | null = null;
-  for (const r of results) if (isValid(r) && (!best || r.fuelMl < best.fuelMl)) best = r;
+  for (const r of results) {
+    const v = metricValue(r, metric);
+    if (isValid(r) && Number.isFinite(v) && (!best || v < metricValue(best, metric))) best = r;
+  }
   return best;
 }
 
-/** Lowest-fuel valid result that reaches cruising speed within `maxSeconds`. */
-export function bestWithin(results: AccelResult[], maxSeconds: number): AccelResult | null {
-  return bestOf(results.filter((r) => r.tToCruise <= maxSeconds));
+/** Best valid result by `metric` that reaches cruising speed within `maxSeconds`. */
+export function bestWithin(results: AccelResult[], maxSeconds: number, metric: AccelMetric = 'total'): AccelResult | null {
+  return bestOf(
+    results.filter((r) => r.tToCruise <= maxSeconds),
+    metric,
+  );
 }
 
 /**

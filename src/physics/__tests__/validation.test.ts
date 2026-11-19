@@ -169,4 +169,15 @@ describe('acceleration study', () => {
     expect(best.fuelAccelMl).toBeGreaterThan(0);
     expect(best.fuelAccelMl).toBeLessThan(best.fuelMl);
   });
+
+  it('average BSFC while accelerating sits on the fuel map and penalises revving out', () => {
+    for (const r of grid.filter(isValid)) {
+      expect(r.bsfcAccel).toBeGreaterThan(215);
+      expect(r.bsfcAccel).toBeLessThan(390); // map tops out ~384 g/kWh at 20 % load, 4000 rpm
+    }
+    // Same pedal: shifting near the torque plateau beats revving to 4000 rpm on engine efficiency.
+    expect(at(0.9, 2250).bsfcAccel).toBeLessThan(at(0.9, 4000).bsfcAccel);
+    // A feather-light pedal works the engine at poor efficiency.
+    expect(at(0.4, 3000).bsfcAccel).toBeGreaterThan(at(0.9, 3000).bsfcAccel);
+  });
 });

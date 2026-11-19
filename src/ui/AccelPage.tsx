@@ -9,6 +9,7 @@ import {
   paretoFront,
   runAccelCase,
   runAccelDriver,
+  type AccelMetric,
   type AccelResult,
   type AccelSetup,
 } from '../physics/accelStudy';
@@ -26,6 +27,24 @@ interface Study {
   eco: AccelResult;
   everyday: AccelResult;
 }
+
+const METRICS: { id: AccelMetric; label: string; sub: string }[] = [
+  {
+    id: 'total',
+    label: 'Over the distance',
+    sub: 'Colour shows extra fuel over the whole distance compared with the most economical strategy that meets your time limit (outlined).',
+  },
+  {
+    id: 'accel',
+    label: 'While accelerating',
+    sub: 'Colour shows extra fuel burned between the start and cruising speed only, compared with the thriftiest acceleration that meets your time limit (outlined). Quicker accelerations cover less distance, so this flatters them a little.',
+  },
+  {
+    id: 'bsfc',
+    label: 'Engine efficiency',
+    sub: 'Colour shows how far the average BSFC (grams of diesel per kWh of engine work) while accelerating is above the most efficient strategy that meets your time limit (outlined). This is the fuel-map view: it ignores how the work is used.',
+  },
+];
 
 const CASES = PEDALS.flatMap((pedal) => SHIFT_RPMS.map((shiftRpm) => ({ pedal, shiftRpm })));
 const CHUNK = 11;
@@ -53,6 +72,9 @@ function StrategyCard({ title, r, best, toKmh, km, note }: { title: string; r: A
             {toKmh} km/h after {fmt(r.tToCruise, 1)} s · {fmt(km, 1)} km in {fmt(r.timeS, 0)} s
             {best && r !== best && Math.abs(dt) >= 0.5 ? ` (${dt > 0 ? '+' : '−'}${fmt(Math.abs(dt), 0)} s)` : ''}
           </div>
+          <div className="small muted">
+            Accelerating: {fmt(r.fuelAccelMl, 1)} mL · {fmt(r.bsfcAccel, 0)} g/kWh
+          </div>
         </>
       ) : (
         <div className="small muted" style={{ marginTop: 6 }}>
@@ -70,6 +92,7 @@ export function AccelPage() {
   const [toKmh, setToKmh] = useState(90);
   const [km, setKm] = useState(2);
   const [limit, setLimit] = useState(20);
+  const [metric, setMetric] = useState<AccelMetric>('total');
   const [study, setStudy] = useState<Study | null>(null);
   const [progress, setProgress] = useState(0);
 
@@ -110,6 +133,8 @@ export function AccelPage() {
   const cheapest = useMemo(() => bestOf(grid), [grid]);
   const quickest = useMemo(() => grid.filter(isValid).sort((a, b) => a.tToCruise - b.tToCruise)[0] ?? null, [grid]);
   const front = useMemo(() => paretoFront(grid), [grid]);
+  const bestByMetric = useMemo(() => bestWithin(grid, limit, metric), [grid, limit, metric]);
+  const bestBsfc = useMemo(() => bestWithin(grid, limit, 'bsfc'), [grid, limit]);
   const sv = study?.setup ?? setup;
 
   // Same pedal as the best, but revving to 3500 rpm before each shift: what late shifting costs.
@@ -227,7 +252,14 @@ export function AccelPage() {
               <>
                 To reach <b>{sv.toKmh} km/h</b> within <b>{limit} s</b>, press the pedal to about <b>{Math.round(best.pedal * 100)} %</b> and{' '}
                 <b>upshift at {best.shiftRpm} rpm</b>. You'll be there in {fmt(best.tToCruise, 1)} s, using {fmt(best.fuelMl, 0)} mL over{' '}
-                {fmt(sv.distanceM / 1000, 1)} km.
+                {fmt(sv.distanceM / 1000, 1)} km, {fmt(best.fuelAccelMl, 0)} mL of it while accelerating, at an average {fmt(best.bsfcAccel, 0)} g/kWh.
+                {bestBsfc && bestBsfc !== best && (
+                  <>
+                    {' '}
+                    The engine itself runs most efficiently within your limit at {Math.round(bestBsfc.pedal * 100)} % and {bestBsfc.shiftRpm} rpm (
+                    {fmt(bestBsfc.bsfcAccel, 0)} g/kWh), but that strategy uses {fmt(bestBsfc.fuelMl - best.fuelMl, 0)} mL more over the distance.
+                  </>
+                )}
                 {lateShift && isValid(lateShift) && lateShift !== best && (
                   <> Revving to 3500 rpm at the same pedal costs {fmt((100 * (lateShift.fuelMl - best.fuelMl)) / best.fuelMl, 1)} % more.</>
                 )}
@@ -253,12 +285,18 @@ export function AccelPage() {
           </div>
 
           <div className="card">
-            <h3>Every strategy</h3>
-            <p className="sub">
-              Colour shows extra fuel over {fmt(sv.distanceM / 1000, 1)} km compared with the most economical strategy that meets your time limit
-              (outlined).
-            </p>
-            <AccelHeatmap results={grid} best={best} maxSeconds={limit} />
+            <div className="accel-heat-head">
+              <h3>Every strategy</h3>
+              <div className="seg" role="group" aria-label="Compare by">
+                {METRICS.map((m) => (
+                  <button key={m.id} aria-pressed={metric === m.id} onClick={() => setMetric(m.id)}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="sub">{METRICS.find((m) => m.id === metric)!.sub}</p>
+            <AccelHeatmap results={grid} best={bestByMetric} maxSeconds={limit} metric={metric} />
           </div>
 
           <div className="grid2">
