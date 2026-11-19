@@ -23,9 +23,10 @@ npm run build    # type-check + production build
   - power demand by speed
 
   The 3D car beside them has clickable windows, illustrative airflow and to-scale force arrows.
-- **Drive**: real-time driving on a free road, built-in Portuguese routes or your own GPX track, with an optional autopilot.
-  - Keys: W/S throttle and brake; E/Q shift; M auto-shift; C cruise control; 1–4 windows; X A/C.
-- **Routes & cycles**: runs the driver model over NEDC or a route and returns consumption, cost, CO₂, an energy breakdown and traces.
+- **Drive**: real-time driving on a free road with an adjustable gradient, or on your own GPX track with an optional autopilot.
+  - Accelerator pedal slider (holds its position); W full throttle while held; S brake; E/Q shift; M auto-shift; C cruise control; 1–4 windows; X A/C; [ / ] gradient.
+- **Acceleration**: how hard to accelerate to a cruising speed. Every pedal position × upshift point is simulated over the same distance; you set how quickly you want to reach cruise speed and it shows the most economical way to do it, plus the full fuel-vs-time trade-off.
+- **Cycles & GPX**: runs the driver model over NEDC or your GPX track and returns consumption, cost, CO₂, an energy breakdown and traces.
 - **Calibrate**: enter trips you know, from fill-ups (best) or the trip computer. The app fits bounded road-load and engine-efficiency factors to them. Data stays in your browser (localStorage).
 - **Validation**: model vs published figures, computed live.
 - **Model card**: every parameter with its source, plus the method and uncertainties.

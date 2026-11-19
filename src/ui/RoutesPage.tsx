@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type uPlot from 'uplot';
 import { CYCLES } from '../physics/cycles';
 import { DRIVERS, type DriverStyle } from '../physics/dynamics';
-import { ROUTES, routeFromGpx, type Route } from '../physics/routes';
+import { routeFromGpx, type Route } from '../physics/routes';
 import { runCycle, runRoute, type RunSummary } from '../physics/simulate';
 import { useStore } from '../state/store';
 import { UChart, axis, type ChartOpts } from './charts/UChart';
@@ -34,7 +34,7 @@ export function RoutesPage() {
   const s = useStore((st) => st.scenario);
   const driverStyle = useStore((st) => st.driverStyle);
   const setDriverStyle = useStore((st) => st.setDriverStyle);
-  const [source, setSource] = useState('commute');
+  const [source, setSource] = useState(CYCLES[0].id);
   const [cold, setCold] = useState(true);
   const [gpx, setGpx] = useState<Route | null>(null);
   const [result, setResult] = useState<{ r: RunSummary; name: string } | null>(null);
@@ -51,9 +51,9 @@ export function RoutesPage() {
         r = runCycle(s, cyc, opts);
         name = cyc.label;
       } else {
-        const route = source === 'gpx' && gpx ? gpx : ROUTES.find((x) => x.id === source)!;
-        r = runRoute(s, route, opts);
-        name = route.label;
+        if (!gpx) return setBusy(false);
+        r = runRoute(s, gpx, opts);
+        name = gpx.label;
       }
       setResult({ r, name });
       setBusy(false);
@@ -79,7 +79,7 @@ export function RoutesPage() {
       <div className="card">
         <h3>Simulate a trip</h3>
         <p className="sub">
-          A driver model follows a speed trace or a route's limits, stops and gradients, shifting like a real driver. It uses all your
+          A driver model follows a standard driving cycle or your own GPX track (its speeds and gradients), shifting like a real driver. It uses all your
           Analyse settings (windows, A/C, weather, load, tyres, calibration).
         </p>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -88,13 +88,6 @@ export function RoutesPage() {
               {CYCLES.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.label}
-                </option>
-              ))}
-            </optgroup>
-            <optgroup label="Portuguese roads">
-              {ROUTES.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.label}
                 </option>
               ))}
             </optgroup>
@@ -138,7 +131,7 @@ export function RoutesPage() {
         <p className="small muted" style={{ marginBottom: 0 }}>
           {CYCLES.find((c) => c.id === source)
             ? 'Tip: switch the model to “NEDC lab” in Analyse to reproduce the type-approval test.'
-            : (source === 'gpx' ? gpx?.description : ROUTES.find((r) => r.id === source)?.description) ?? ''}
+            : gpx?.description ?? ''}
         </p>
       </div>
 

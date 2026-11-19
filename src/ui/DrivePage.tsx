@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { DRIVERS, Driver, NORMAL_DRIVER, Vehicle, initialState, type SimState, type StepInfo } from '../physics/dynamics';
-import { buildProfile, routeFromGpx, ROUTES, sampleProfile, type Route, type RouteProfile } from '../physics/routes';
+import { buildProfile, routeFromGpx, sampleProfile, type Route, type RouteProfile } from '../physics/routes';
 import { routeTarget } from '../physics/simulate';
 import type { Scenario } from '../physics/scenario';
 import { FUEL, VEHICLE } from '../physics/vehicle';
@@ -13,7 +13,8 @@ import { RouteRoad } from '../scene/RouteRoad';
 import { Lighting, ScrollingRoad } from '../scene/Stage';
 import { Gauge } from './Gauges';
 import { setupCanvas } from './charts/canvas';
-import { C, fmt } from './theme';
+import { Slider } from './Controls';
+import { C, fmt, fmtGrade } from './theme';
 
 interface Sim {
   car: Vehicle;
@@ -261,15 +262,13 @@ export function DrivePage() {
   const s = useStore((st) => st.scenario);
   const setWindow = useStore((st) => st.setWindow);
   const setAc = useStore((st) => st.setAc);
+  const set = useStore((st) => st.set);
   const driverStyle = useStore((st) => st.driverStyle);
-  const [routeId, setRouteId] = useState<string>('free');
+  const [routeId, setRouteId] = useState<'free' | 'gpx'>('free');
   const [gpx, setGpx] = useState<Route | null>(null);
   const [paint] = useState('#aeb3b8');
   const profile = useMemo(() => {
-    if (routeId === 'free') return null;
-    if (routeId === 'gpx' && gpx) return buildProfile(gpx);
-    const r = ROUTES.find((x) => x.id === routeId);
-    return r ? buildProfile(r) : null;
+    return routeId === 'gpx' && gpx ? buildProfile(gpx) : null;
   }, [routeId, gpx]);
   const sim = useRef<Sim>(newSim(s, profile));
   const speedRef = useRef(0);
@@ -331,7 +330,10 @@ export function DrivePage() {
       } else if (k === 'r') S.cruise.kmh = Math.min(180, S.cruise.kmh + 5);
       else if (k === 'f') S.cruise.kmh = Math.max(30, S.cruise.kmh - 5);
       else if (k === 'x') setAc({ on: !useStore.getState().scenario.ac.on });
-      else if (['1', '2', '3', '4'].includes(k)) {
+      else if (k === '[' || k === ']') {
+        const g = useStore.getState().scenario.gradePct + (k === ']' ? 0.5 : -0.5);
+        set({ gradePct: Math.max(-20, Math.min(20, g)) });
+      } else if (['1', '2', '3', '4'].includes(k)) {
         const i = parseInt(k) - 1;
         setWindow(i, useStore.getState().scenario.windows[i] > 0.5 ? 0 : 1);
       } else return;
@@ -348,7 +350,7 @@ export function DrivePage() {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
     };
-  }, [setAc, setWindow]);
+  }, [setAc, setWindow, set]);
 
   // HUD refresh at 10 Hz.
   useEffect(() => {
@@ -427,18 +429,23 @@ export function DrivePage() {
       </div>
 
       <div className="drive-panel">
-        <div className="row">
-          <label htmlFor="route">Road</label>
-          <select id="route" value={routeId} onChange={(e) => setRouteId(e.target.value)} style={{ gridColumn: '1 / -1' }}>
-            <option value="free">Free road (gradient from Analyse)</option>
-            {ROUTES.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.label}
-              </option>
-            ))}
-            {gpx && <option value="gpx">{gpx.label}</option>}
-          </select>
-        </div>
+        {gpx && (
+          <div className="row">
+            <label htmlFor="route">Road</label>
+            <select id="route" value={routeId} onChange={(e) => setRouteId(e.target.value as 'free' | 'gpx')} style={{ gridColumn: '1 / -1' }}>
+              <option value="free">Free road</option>
+              <option value="gpx">{gpx.label}</option>
+            </select>
+          </div>
+        )}
+        {!profile && (
+          <div className="grade-row">
+            <Slider label="Gradient" value={s.gradePct} min={-20} max={20} step={0.5} format={fmtGrade} onChange={(v) => set({ gradePct: v })} />
+            <button className="btn" onClick={() => set({ gradePct: 0 })} disabled={s.gradePct === 0} title="Flat road">
+              0
+            </button>
+          </div>
+        )}
         <label className="small muted" style={{ display: 'block', marginBottom: 8 }}>
           Load a GPX track:{' '}
           <input
@@ -464,7 +471,7 @@ export function DrivePage() {
             onClick={() => {
               sim.current.autoPilot = !sim.current.autoPilot;
             }}
-            title="Let the driver model follow the route's speed limits and stops"
+            title={profile ? "Let the driver model follow the track's speeds" : 'Load a GPX track to use the autopilot'}
           >
             Autopilot
           </button>
@@ -496,6 +503,8 @@ export function DrivePage() {
           <span>Windows FL · FR · RL · RR</span>
           <kbd>X</kbd>
           <span>A/C on/off</span>
+          <kbd>[ / ]</kbd>
+          <span>Gradient −/+ 0.5 %</span>
         </div>
         <div className="small muted">
           Windows {s.windows.map((w) => (w > 0.5 ? '▼' : '▲')).join(' ')} · A/C {s.ac.on ? 'on' : 'off'} · {s.weather.tempC} °C

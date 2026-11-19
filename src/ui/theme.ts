@@ -31,3 +31,7 @@ function hex(h: string): [number, number, number] {
 }
 
 export const fmt = (v: number, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : '—');
+
+/** Road gradient as on a sign plus the angle, e.g. "+8.0 % · 4.6°". */
+export const fmtGrade = (pct: number) =>
+  `${pct > 0 ? '+' : ''}${pct.toFixed(1)} % · ${((Math.atan(pct / 100) * 180) / Math.PI).toFixed(1)}°`;

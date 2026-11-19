@@ -5,7 +5,7 @@ import { DEFAULT_SCENARIO, type Calibration, type Scenario } from '../physics/sc
 import { DEFAULT_TRIP_COMPUTER_OPTIMISM, type TripEntry } from '../physics/calibration';
 import type { DriverStyle } from '../physics/dynamics';
 
-export type Tab = 'analyse' | 'drive' | 'routes' | 'calibration' | 'validation' | 'model';
+export type Tab = 'analyse' | 'drive' | 'accel' | 'routes' | 'calibration' | 'validation' | 'model';
 
 interface Persisted {
   scenario: Scenario;

@@ -3,6 +3,7 @@ import { useStore, type Tab } from './state/store';
 import { AnalysePage } from './ui/AnalysePage';
 
 const DrivePage = lazy(() => import('./ui/DrivePage').then((m) => ({ default: m.DrivePage })));
+const AccelPage = lazy(() => import('./ui/AccelPage').then((m) => ({ default: m.AccelPage })));
 const RoutesPage = lazy(() => import('./ui/RoutesPage').then((m) => ({ default: m.RoutesPage })));
 const CalibrationPage = lazy(() => import('./ui/CalibrationPage').then((m) => ({ default: m.CalibrationPage })));
 const ValidationPage = lazy(() => import('./ui/ValidationPage').then((m) => ({ default: m.ValidationPage })));
@@ -11,7 +12,8 @@ const ModelCardPage = lazy(() => import('./ui/ModelCardPage').then((m) => ({ def
 const TABS: { id: Tab; label: string }[] = [
   { id: 'analyse', label: 'Analyse' },
   { id: 'drive', label: 'Drive' },
-  { id: 'routes', label: 'Routes & cycles' },
+  { id: 'accel', label: 'Acceleration' },
+  { id: 'routes', label: 'Cycles & GPX' },
   { id: 'calibration', label: 'Calibrate' },
   { id: 'validation', label: 'Validation' },
   { id: 'model', label: 'Model card' },
@@ -46,6 +48,7 @@ export function App() {
         <Suspense fallback={<div className="page muted">Loading…</div>}>
           {tab === 'analyse' && <AnalysePage />}
           {tab === 'drive' && <DrivePage />}
+          {tab === 'accel' && <AccelPage />}
           {tab === 'routes' && <RoutesPage />}
           {tab === 'calibration' && <CalibrationPage />}
           {tab === 'validation' && <ValidationPage />}

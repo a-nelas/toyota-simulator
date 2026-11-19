@@ -7,6 +7,7 @@ import { DEFAULT_SCENARIO, type Scenario } from '../scenario';
 import { runAcceleration, runCycle, runRoute } from '../simulate';
 import { solve, solveGear } from '../steadyState';
 import { SPEC } from '../vehicle';
+import { PEDALS, SHIFT_RPMS, bestWithin, isValid, paretoFront, runAccelCase } from '../accelStudy';
 
 const TA: Scenario = { ...DEFAULT_SCENARIO, roadLoadMode: 'typeApproval' };
 const at = (patch: Partial<Scenario>) => ({ ...DEFAULT_SCENARIO, ...patch });
@@ -130,5 +131,42 @@ describe('real-world', () => {
   it('Serra da Estrela descent is almost entirely fuel cut', () => {
     const r = runRoute(DEFAULT_SCENARIO, ROUTES.find((x) => x.id === 'estrela-down')!);
     expect(r.lPer100).toBeLessThan(0.6);
+  });
+});
+
+describe('acceleration study', () => {
+  const flat = { fromKmh: 0, toKmh: 90, distanceM: 2000, gradePct: 0 };
+  const grid = PEDALS.flatMap((pedal) => SHIFT_RPMS.map((shiftRpm) => runAccelCase(DEFAULT_SCENARIO, flat, { pedal, shiftRpm })));
+  const at = (pedal: number, shiftRpm: number) => grid.find((r) => r.pedal === pedal && r.shiftRpm === shiftRpm)!;
+
+  it('flooring it reaches 90 km/h in about the published 0–100 pace', () => {
+    const r = at(1, 4000);
+    expect(r.reached && r.completed).toBe(true);
+    expect(r.tToCruise).toBeGreaterThan(8);
+    expect(r.tToCruise).toBeLessThan(12.5);
+  });
+
+  it('a feather-light pedal cannot reach 120 km/h up a 12 % climb', () => {
+    const r = runAccelCase(DEFAULT_SCENARIO, { fromKmh: 0, toKmh: 120, distanceM: 2000, gradePct: 12 }, { pedal: 0.2, shiftRpm: 2000 });
+    expect(r.reached).toBe(false);
+  });
+
+  it('at the same pedal, early upshifts use less fuel than revving out each gear', () => {
+    for (const p of [0.6, 0.8, 1]) expect(at(p, 2000).fuelMl).toBeLessThan(at(p, 3500).fuelMl);
+  });
+
+  it('the trade-off curve trades time for fuel, and the time limit is respected', () => {
+    const front = paretoFront(grid);
+    expect(front.length).toBeGreaterThan(3);
+    for (let i = 1; i < front.length; i++) {
+      expect(front[i].tToCruise).toBeGreaterThanOrEqual(front[i - 1].tToCruise);
+      expect(front[i].fuelMl).toBeLessThan(front[i - 1].fuelMl);
+    }
+    const best = bestWithin(grid, 20)!;
+    expect(best.tToCruise).toBeLessThanOrEqual(20);
+    for (const r of grid) if (isValid(r) && r.tToCruise <= 20) expect(best.fuelMl).toBeLessThanOrEqual(r.fuelMl);
+    // Accelerating uses part of the total, never more.
+    expect(best.fuelAccelMl).toBeGreaterThan(0);
+    expect(best.fuelAccelMl).toBeLessThan(best.fuelMl);
   });
 });

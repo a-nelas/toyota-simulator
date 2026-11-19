@@ -4,8 +4,9 @@ import { TYRES, type TyreId } from '../physics/tyres';
 import type { OperatingPoint } from '../physics/steadyState';
 import { isFeasible } from '../physics/steadyState';
 import { useStore } from '../state/store';
+import { fmtGrade } from './theme';
 
-function Slider(props: {
+export function Slider(props: {
   label: string;
   value: number;
   min: number;
@@ -13,6 +14,8 @@ function Slider(props: {
   step: number;
   unit?: string;
   digits?: number;
+  /** Custom readout; overrides digits/unit. */
+  format?: (v: number) => string;
   onChange: (v: number) => void;
 }) {
   const id = `s-${props.label.replace(/\W+/g, '-')}`;
@@ -20,8 +23,7 @@ function Slider(props: {
     <div className="row">
       <label htmlFor={id}>{props.label}</label>
       <output htmlFor={id}>
-        {props.value.toFixed(props.digits ?? 0)}
-        {props.unit ? ` ${props.unit}` : ''}
+        {props.format ? props.format(props.value) : `${props.value.toFixed(props.digits ?? 0)}${props.unit ? ` ${props.unit}` : ''}`}
       </output>
       <input
         id={id}
@@ -51,7 +53,7 @@ export function Controls({ byGear }: { byGear: OperatingPoint[] }) {
       <fieldset>
         <legend>Driving</legend>
         <Slider label="Speed" value={s.speedKmh} min={0} max={185} step={1} unit="km/h" onChange={(v) => set({ speedKmh: v })} />
-        <Slider label="Gradient" value={s.gradePct} min={-12} max={12} step={0.5} unit="%" digits={1} onChange={(v) => set({ gradePct: v })} />
+        <Slider label="Gradient" value={s.gradePct} min={-20} max={20} step={0.5} format={fmtGrade} onChange={(v) => set({ gradePct: v })} />
         <div className="section-title" style={{ marginTop: 4 }}>
           Gear
         </div>
